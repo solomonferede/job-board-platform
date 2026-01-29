@@ -5,8 +5,13 @@ from .serializers import JobSerializer, CategorySerializer, JobTypeSerializer, L
 from .permissions import IsAdminOrEmployer
 from rest_framework.permissions import IsAuthenticatedOrReadOnly
 
+from drf_spectacular.utils import extend_schema
+
 
 # --- Job Views ---
+@extend_schema(
+    description="List all jobs or create a new job (Admin/Employer only)."
+)
 class JobListCreateView(generics.ListCreateAPIView):
     """
     GET: List all jobs (public).
