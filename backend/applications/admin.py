@@ -1,3 +1,15 @@
 from django.contrib import admin
+from .models import Application
 
-# Register your models here.
+
+@admin.register(Application)
+class ApplicationAdmin(admin.ModelAdmin):
+    list_display = (
+        "id",
+        "applicant",
+        "job",
+        "status",
+        "created_at",
+    )
+    list_filter = ("status",)
+    search_fields = ("applicant__username", "job__title")
