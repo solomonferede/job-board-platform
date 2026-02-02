@@ -10,6 +10,7 @@ from drf_spectacular.utils import extend_schema
 
 # --- Job Views ---
 @extend_schema(
+    tags=["Jobs"],
     description="""List all jobs (public) or create a new job (Admin/Employer only).
     Filterable by category, job_type, location, is_remote, is_active. Searchable
     by title, description, company. Orderable by created_at, salary."""
@@ -37,6 +38,7 @@ class JobListCreateView(generics.ListCreateAPIView):
 
 
 @extend_schema(
+    tags=["Jobs"],
     description="Retrieve, update, or delete a specific job by ID. GET is public, PUT/PATCH/DELETE require Admin/Employer permissions."
 )
 class JobRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
@@ -60,6 +62,7 @@ class JobRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
 
 # --- Location Views ---
 @extend_schema(
+    tags=["Locations"],
     description="List all locations (public) or create a new location (Admin/Employer only)."
 )
 class LocationListCreateView(generics.ListCreateAPIView):
@@ -77,6 +80,7 @@ class LocationListCreateView(generics.ListCreateAPIView):
 
 
 @extend_schema(
+    tags=["Locations"],
     description="Retrieve, update, or delete a specific location by ID. GET is public, PUT/PATCH/DELETE require Admin/Employer permissions."
 )
 class LocationRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
@@ -96,11 +100,12 @@ class LocationRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
 
 # --- Category Views ---
 @extend_schema(
-    description="List all categories (public) or create a new category (Admin/Employer only)."
+    tags=["Job Categories"],
+    description="List all Job categories (public) or create a new category (Admin/Employer only)."
 )
 class CategoryListCreateView(generics.ListCreateAPIView):
     """
-    GET: List categories (public)
+    GET: List Job categories (public)
     POST: Create category (Admin/Employer only)
     """
     queryset = Category.objects.all()
@@ -113,6 +118,7 @@ class CategoryListCreateView(generics.ListCreateAPIView):
 
 
 @extend_schema(
+    tags=["Job Categories"],
     description="Retrieve, update, or delete a specific category by ID. GET is public, PUT/PATCH/DELETE require Admin/Employer permissions."
 )
 class CategoryRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
@@ -132,6 +138,7 @@ class CategoryRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
 
 # --- JobType Views ---
 @extend_schema(
+    tags=["Job Types"],
     description="List all job types (public) or create a new job type (Admin/Employer only)."
 )
 class JobTypeListCreateView(generics.ListCreateAPIView):
@@ -149,6 +156,7 @@ class JobTypeListCreateView(generics.ListCreateAPIView):
 
 
 @extend_schema(
+    tags=["Job Types"],
     description="Retrieve, update, or delete a specific job type by ID. GET is public, PUT/PATCH/DELETE require Admin/Employer permissions."
 )
 class JobTypeRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
