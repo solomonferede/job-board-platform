@@ -1,7 +1,7 @@
 from drf_spectacular.utils import extend_schema
 from rest_framework import generics, permissions, status
+from rest_framework.generics import GenericAPIView
 from rest_framework.response import Response
-from rest_framework.views import APIView
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
 from .models import User
@@ -162,8 +162,9 @@ class RegisterView(generics.CreateAPIView):
         403: {"description": "Account is deactivated"},
     },
 )
-class ProfileView(APIView):
+class ProfileView(GenericAPIView):
     permission_classes = [permissions.IsAuthenticated]
+    serializer_class = UserSerializer  # default serializer for GET responses
 
     @extend_schema(
         description=(
@@ -176,10 +177,12 @@ class ProfileView(APIView):
         ),
         responses={200: UserSerializer},
     )
-    def get(self, request):
-        return Response(UserSerializer(request.user).data)
+    def get(self, request, *args, **kwargs):
+        serializer = self.get_serializer(request.user)
+        return Response(serializer.data)
 
     @extend_schema(
+        request=ProfileUpdateSerializer,
         description=(
             "Update your profile information.\n\n"
             "### ✏️ Updatable Fields\n"
@@ -203,7 +206,7 @@ class ProfileView(APIView):
             400: {"description": "Validation error"},
         },
     )
-    def patch(self, request):
+    def patch(self, request, *args, **kwargs):
         serializer = ProfileUpdateSerializer(
             request.user, data=request.data, partial=True
         )
@@ -222,7 +225,7 @@ class ProfileView(APIView):
         ),
         responses={204: {"description": "Account deactivated"}},
     )
-    def delete(self, request):
+    def delete(self, request, *args, **kwargs):
         request.user.is_active = False
         request.user.save()
         return Response(status=status.HTTP_204_NO_CONTENT)
