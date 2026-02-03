@@ -1,5 +1,5 @@
-from django.db import models
 from django.contrib.auth.models import AbstractUser
+from django.db import models
 
 
 class User(AbstractUser):
@@ -8,9 +8,9 @@ class User(AbstractUser):
     """
 
     class Role(models.TextChoices):
-        ADMIN = 'ADMIN', 'Admin'
-        EMPLOYER = 'EMPLOYER', 'Employer'
-        JOB_SEEKER = 'JOB_SEEKER', 'Job Seeker'
+        ADMIN = "ADMIN", "Admin"
+        EMPLOYER = "EMPLOYER", "Employer"
+        JOB_SEEKER = "JOB_SEEKER", "Job Seeker"
 
     role = models.CharField(
         max_length=20,

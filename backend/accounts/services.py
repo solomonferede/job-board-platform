@@ -1,3 +1,7 @@
+"""
+Accounts services module providing user-related business logic.
+"""
+
 from .models import User
 
 
