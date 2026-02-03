@@ -1,17 +1,54 @@
 from drf_spectacular.utils import extend_schema
-from rest_framework import generics, permissions
+from rest_framework import generics, permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
 from .models import User
-from .serializers import RegisterSerializer, UserSerializer
+from .permissions import IsAdmin
+from .serializers import (
+    AdminUserSerializer,
+    ProfileUpdateSerializer,
+    RegisterSerializer,
+    UserSerializer,
+)
+
+# =========================
+# Authentication
+# =========================
 
 
 @extend_schema(
     tags=["Authentication"],
-    description="""Obtain JWT token pair (access + refresh).
-                Provide username and password to authenticate.""",
+    description=(
+        "Obtain JWT **access** and **refresh** tokens.\n\n"
+        "### 🔓 Access\n"
+        "- **Public endpoint** (authenticate using valid **username** and **password**\n\n"
+        "### ⏱ Token Lifetime\n"
+        "- **Access token**: short-lived (~5 minutes)\n"
+        "- **Refresh token**: longer-lived (~24 hours)\n\n"
+        "### 📥 Example Request Body\n"
+        "```json\n"
+        "{\n"
+        '  "username": "john_doe",\n'
+        '  "password": "securepassword123"\n'
+        "}\n"
+        "```"
+    ),
+    responses={
+        200: {
+            "description": "Authentication successful",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "access": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+                        "refresh": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+                    }
+                }
+            },
+        },
+        401: {"description": "Invalid username or password"},
+    },
 )
 class CustomTokenObtainPairView(TokenObtainPairView):
     pass
@@ -19,8 +56,32 @@ class CustomTokenObtainPairView(TokenObtainPairView):
 
 @extend_schema(
     tags=["Authentication"],
-    description="""Refresh JWT access token. Provide a valid
-                refresh token to get a new access token.""",
+    description=(
+        "Refresh JWT **access token**.\n\n"
+        "### 🔓 Access\n"
+        "- **Public endpoint**\n"
+        "- Used when access token expires\n\n"
+        "### 🔁 Behavior\n"
+        "- Requires a **valid refresh token**\n"
+        "- Returns a new access token\n\n"
+        "### 📥 Example Request Body\n"
+        "```json\n"
+        "{\n"
+        '  "refresh": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."\n'
+        "}\n"
+        "```"
+    ),
+    responses={
+        200: {
+            "description": "New access token generated",
+            "content": {
+                "application/json": {
+                    "example": {"access": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."}
+                }
+            },
+        },
+        401: {"description": "Invalid or expired refresh token"},
+    },
 )
 class CustomTokenRefreshView(TokenRefreshView):
     pass
@@ -28,42 +89,185 @@ class CustomTokenRefreshView(TokenRefreshView):
 
 @extend_schema(
     tags=["Authentication"],
-    description="""Register a new user account. Requires username,
-                email, password, and optional first_name/last_name.
-                Password is write-only and will be securely hashed.
-                No authentication required.""",
+    description=(
+        "Register as a **Job Seeker**.\n\n"
+        "### 🔓 Access\n"
+        "- **Public endpoint** (no authentication required)\n\n"
+        "### 👤 Role Assignment\n"
+        "- Automatically assigns **JOB_SEEKER** role\n"
+        "- **ADMIN** and **EMPLOYER** roles require admin privileges\n\n"
+        "### ✅ Required Fields\n"
+        "- username (unique)\n"
+        "- email (unique, validated)\n"
+        "- password (minimum 8 characters, write-only)\n\n"
+        "### ➕ Optional Fields\n"
+        "- first_name\n"
+        "- last_name\n\n"
+        "### 📥 Example Request Body\n"
+        "```json\n"
+        "{\n"
+        '  "username": "job_seeker1",\n'
+        '  "email": "seeker@example.com",\n'
+        '  "password": "SecurePass123",\n'
+        '  "first_name": "John",\n'
+        '  "last_name": "Doe"\n'
+        "}\n"
+        "```"
+    ),
+    responses={
+        201: {
+            "description": "User created successfully",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "id": 1,
+                        "username": "job_seeker1",
+                        "email": "seeker@example.com",
+                        "first_name": "John",
+                        "last_name": "Doe",
+                        "role": "JOB_SEEKER",
+                    }
+                }
+            },
+        },
+        400: {
+            "description": "Validation error (duplicate username/email, weak password)"
+        },
+    },
 )
 class RegisterView(generics.CreateAPIView):
-    """
-    Create a new user account with username, email, and password.
-    """
-
     queryset = User.objects.all()
     serializer_class = RegisterSerializer
     permission_classes = [permissions.AllowAny]
 
 
+# =========================
+# User Profile
+# =========================
+
+
 @extend_schema(
-    description="""User profile management. GET returns the
-                authenticated user's profile including id, username,
-                 email, first_name, last_name, and role.""",
     tags=["User Profile"],
+    description=(
+        "Authenticated user profile management.\n\n"
+        "### 🔐 Access\n"
+        "- Requires valid **JWT access token**\n\n"
+        "### 📌 Supported Operations\n"
+        "- **GET**: Retrieve your profile\n"
+        "- **PATCH**: Update your profile (partial updates)\n"
+        "- **DELETE**: Deactivate your account (soft delete)"
+    ),
+    responses={
+        401: {"description": "Authentication required"},
+        403: {"description": "Account is deactivated"},
+    },
 )
 class ProfileView(APIView):
-    """
-    View and manage authenticated user's profile.
-    """
-
     permission_classes = [permissions.IsAuthenticated]
 
     @extend_schema(
-        description="""Retrieve the current authenticated user's profile
-                details including role information.""",
+        description=(
+            "Retrieve authenticated user's profile.\n\n"
+            "### 📄 Response Includes\n"
+            "- id, username, email\n"
+            "- first_name, last_name\n"
+            "- role\n\n"
+            "⚠️ Sensitive fields (e.g. password) are never exposed."
+        ),
         responses={200: UserSerializer},
     )
     def get(self, request):
-        """
-        Retrieve the authenticated user's profile with role information.
-        """
-        serializer = UserSerializer(request.user)
-        return Response(serializer.data)
+        return Response(UserSerializer(request.user).data)
+
+    @extend_schema(
+        description=(
+            "Update your profile information.\n\n"
+            "### ✏️ Updatable Fields\n"
+            "- first_name\n"
+            "- last_name\n"
+            "- email (must remain unique)\n\n"
+            "### 🚫 Restricted Fields\n"
+            "- username\n"
+            "- role\n\n"
+            "### 📥 Example Request Body\n"
+            "```json\n"
+            "{\n"
+            '  "first_name": "UpdatedFirstName",\n'
+            '  "last_name": "UpdatedLastName",\n'
+            '  "email": "newemail@example.com"\n'
+            "}\n"
+            "```"
+        ),
+        responses={
+            200: UserSerializer,
+            400: {"description": "Validation error"},
+        },
+    )
+    def patch(self, request):
+        serializer = ProfileUpdateSerializer(
+            request.user, data=request.data, partial=True
+        )
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(UserSerializer(request.user).data)
+
+    @extend_schema(
+        description=(
+            "Deactivate your account.\n\n"
+            "### 🧹 Behavior\n"
+            "- Soft delete (sets `is_active = False`)\n"
+            "- Login is disabled\n"
+            "- Data is preserved\n\n"
+            "⚠️ Reactivation requires admin action."
+        ),
+        responses={204: {"description": "Account deactivated"}},
+    )
+    def delete(self, request):
+        request.user.is_active = False
+        request.user.save()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+# =========================
+# Admin Management
+# =========================
+
+
+@extend_schema(
+    tags=["Admin Management"],
+    description=(
+        "Admin-only user management.\n\n"
+        "### 🔐 Access\n"
+        "- Requires **ADMIN** role\n\n"
+        "### 🛠 Capabilities\n"
+        "- Create users with any role\n"
+        "- List all users\n"
+        "- Update or delete accounts\n"
+        "- Reactivate deactivated users"
+    ),
+    responses={
+        401: {"description": "Authentication required"},
+        403: {"description": "Admin privileges required"},
+    },
+)
+class AdminUserListCreateView(generics.ListCreateAPIView):
+    queryset = User.objects.all()
+    serializer_class = AdminUserSerializer
+    permission_classes = [permissions.IsAuthenticated, IsAdmin]
+
+
+@extend_schema(
+    tags=["Admin Management"],
+    description=(
+        "Admin user detail operations.\n\n"
+        "### 🔐 Access\n"
+        "- Requires **ADMIN** role\n\n"
+        "### 📌 Supported Operations\n"
+        "- GET, PUT, PATCH, DELETE\n\n"
+        "⚠️ DELETE permanently removes the user."
+    ),
+)
+class AdminUserRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
+    queryset = User.objects.all()
+    serializer_class = AdminUserSerializer
+    permission_classes = [permissions.IsAuthenticated, IsAdmin]

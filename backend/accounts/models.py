@@ -17,6 +17,7 @@ class User(AbstractUser):
         choices=Role.choices,
         default=Role.JOB_SEEKER,
     )
+    email = models.EmailField(unique=True)
 
     def is_admin(self):
         return self.role == self.Role.ADMIN
