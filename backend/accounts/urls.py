@@ -1,10 +1,10 @@
+'''
+backend.accounts.urls module which contains URL patterns for user registration,
+login, token refresh, and profile management.   
+'''
 from django.urls import path
-from .views import (
-    CustomTokenObtainPairView,
-    CustomTokenRefreshView,
-)
+from .views import CustomTokenObtainPairView, CustomTokenRefreshView
 from .views import RegisterView, ProfileView
-
 
 
 urlpatterns = [
