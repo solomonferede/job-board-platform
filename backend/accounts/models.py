@@ -18,6 +18,13 @@ class User(AbstractUser):
         default=Role.JOB_SEEKER,
     )
     email = models.EmailField(unique=True)
+    company = models.ForeignKey(
+        "jobs.Company",
+        on_delete=models.SET_NULL,
+        blank=True,
+        null=True,
+        related_name="users",
+    )
 
     def is_admin(self):
         return self.role == self.Role.ADMIN
