@@ -18,21 +18,33 @@ from .serializers import (
 This endpoint is nested under a specific job: `/api/v1/jobs/{job_pk}/applications/`.
 
 ### GET
-- **Purpose:** Retrieve all applications submitted for the specified job.
-- **Access:** Job Owner (employer who created the job) or Admin.
-- **Response:** List of application objects including applicant details, status, cover letter, resume, and timestamps.
+- **Purpose:** Retrieve applications for the specified job.
+- **Access:**
+  - **Job Seeker:** Can see only their own application for this job.
+  - **Job Owner/Admin:** Can see all applications for this job.
+- **Response:** List of application objects.
 
 ### POST
 - **Purpose:** Submit a new application for the specified job.
 - **Access:** Authenticated Job Seeker only.
-- **Behavior:** Automatically assigns the authenticated user as the applicant and associates the application with the specified job.
-- **Validation:** Prevents duplicate applications from the same user for the same job.
+- **Behavior:** Automatically assigns the authenticated user as the applicant.
 - **Response:** Newly created application object.
 """,
 )
 class JobApplicationListCreateView(generics.ListCreateAPIView):
     def get_queryset(self):
-        return Application.objects.filter(job_id=self.kwargs.get("job_pk"))
+        job_pk = self.kwargs.get("job_pk")
+        user = self.request.user
+
+        # Base queryset for the specified job
+        queryset = Application.objects.filter(job_id=job_pk)
+
+        # If the user is a job seeker, only show their own application
+        if user.is_authenticated and user.is_job_seeker():
+            return queryset.filter(applicant=user)
+
+        # For employers or admins, return all applications for the job (permission class handles access)
+        return queryset
 
     def get_serializer_class(self):
         if self.request.method == "POST":
@@ -41,9 +53,14 @@ class JobApplicationListCreateView(generics.ListCreateAPIView):
 
     def get_permissions(self):
         if self.request.method == "POST":
+            # Only job seekers can apply
             self.permission_classes = [IsAuthenticated, IsJobSeeker]
-        else:
-            self.permission_classes = [IsAuthenticated, IsJobOwner | IsAdmin]
+        else:  # GET
+            # Job seekers can view their application, owners/admins can view all
+            self.permission_classes = [
+                IsAuthenticated,
+                IsJobSeeker | IsJobOwner | IsAdmin,
+            ]
         return super().get_permissions()
 
     def perform_create(self, serializer):

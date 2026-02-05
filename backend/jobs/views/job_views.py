@@ -10,17 +10,43 @@ from jobs.serializers import JobSerializer
 
 @extend_schema(
     tags=["Jobs"],
+    summary="List Jobs or Create a Job",
     description="""
-### Jobs
+### GET /api/v1/jobs/
 
-**GET**
-- Public
-- List all active jobs
+- **Purpose:** Retrieve a list of jobs.
+- **Access:** Public (authentication not required).
+- **Behavior:**
+  - Returns active jobs by default.
+  - Supports filtering, searching, and ordering.
+- **Filtering:**
+  - `category`
+  - `job_type`
+  - `location`
+  - `is_remote`
+  - `is_active`
+- **Search:**
+  - `title`
+  - `description`
+- **Ordering:**
+  - `created_at`
+  - `salary`
+- **Performance:**
+  - Uses optimized queries with related objects preloaded.
 
-**POST**
-- Admin or Employer only
-- Creates a new job
-- `created_by` is set automatically
+---
+
+### POST /api/v1/jobs/
+
+- **Purpose:** Create a new job posting.
+- **Access:** Admin or Employer only.
+- **Behavior:**
+  - The authenticated user is automatically set as `created_by`.
+  - Employers can only create jobs for companies they manage.
+- **Validation:**
+  - Ensures required job attributes are provided.
+- **Response:**
+  - Returns the newly created job object.
 """,
 )
 class JobListCreateView(generics.ListCreateAPIView):
@@ -59,15 +85,36 @@ class JobListCreateView(generics.ListCreateAPIView):
 
 @extend_schema(
     tags=["Jobs"],
+    summary="Retrieve, Update, or Delete a Job",
     description="""
-### Job Detail
+### GET /api/v1/jobs/{id}/
 
-**GET**
-- Public
+- **Purpose:** Retrieve full details of a single job.
+- **Access:** Public.
+- **Response:** Job details including category, job type, location, and company.
 
-**PUT / PATCH / DELETE**
-- Admin: any job
-- Employer: only jobs they created
+---
+
+### PUT / PATCH /api/v1/jobs/{id}/
+
+- **Purpose:** Update an existing job.
+- **Access:**
+  - **Admin:** Can update any job.
+  - **Employer:** Can update only jobs they created.
+- **Behavior:**
+  - Partial updates supported via PATCH.
+  - Automatically enforces ownership rules.
+
+---
+
+### DELETE /api/v1/jobs/{id}/
+
+- **Purpose:** Delete a job posting.
+- **Access:**
+  - **Admin:** Can delete any job.
+  - **Employer:** Can delete only jobs they created.
+- **Behavior:**
+  - Permanently removes the job from the system.
 """,
 )
 class JobRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
