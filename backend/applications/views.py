@@ -1,170 +1,122 @@
 from drf_spectacular.utils import extend_schema
-from rest_framework import generics, status
+from rest_framework import generics
 from rest_framework.permissions import IsAuthenticated
-from rest_framework.response import Response
 
 from .models import Application
-from .permissions import IsAdmin, IsEmployerOwner, IsJobSeeker
+from .permissions import IsAdmin, IsApplicantOwner, IsJobOwner, IsJobSeeker
 from .serializers import (
     ApplicationCreateSerializer,
     ApplicationReadSerializer,
     ApplicationStatusUpdateSerializer,
 )
-from .services import update_application_status, withdraw_application
 
 
-# ============================================================
-# APPLY FOR JOB
-# ============================================================
 @extend_schema(
     tags=["Applications"],
+    summary="List Applications for a Job or Apply to a Job",
     description="""
-### 📝 Apply for a Job
+This endpoint is nested under a specific job: `/api/v1/jobs/{job_pk}/applications/`.
 
-Authenticated **job seekers only** can apply to active jobs.
+### GET
+- **Purpose:** Retrieve all applications submitted for the specified job.
+- **Access:** Job Owner (employer who created the job) or Admin.
+- **Response:** List of application objects including applicant details, status, cover letter, resume, and timestamps.
 
-- Prevents duplicate applications
-- Automatically assigns applicant
+### POST
+- **Purpose:** Submit a new application for the specified job.
+- **Access:** Authenticated Job Seeker only.
+- **Behavior:** Automatically assigns the authenticated user as the applicant and associates the application with the specified job.
+- **Validation:** Prevents duplicate applications from the same user for the same job.
+- **Response:** Newly created application object.
 """,
 )
-class ApplyJobView(generics.CreateAPIView):
-    """
-    Apply for a Job
-    Authenticated job seekers only can apply to active jobs.
-    """
+class JobApplicationListCreateView(generics.ListCreateAPIView):
+    def get_queryset(self):
+        return Application.objects.filter(job_id=self.kwargs.get("job_pk"))
 
-    serializer_class = ApplicationCreateSerializer
-    permission_classes = [IsAuthenticated, IsJobSeeker]
+    def get_serializer_class(self):
+        if self.request.method == "POST":
+            return ApplicationCreateSerializer
+        return ApplicationReadSerializer
+
+    def get_permissions(self):
+        if self.request.method == "POST":
+            self.permission_classes = [IsAuthenticated, IsJobSeeker]
+        else:
+            self.permission_classes = [IsAuthenticated, IsJobOwner | IsAdmin]
+        return super().get_permissions()
+
+    def perform_create(self, serializer):
+        serializer.save(applicant=self.request.user, job_id=self.kwargs.get("job_pk"))
 
 
-# ============================================================
-# MY APPLICATIONS (JOB SEEKER)
-# ============================================================
 @extend_schema(
     tags=["Applications"],
+    summary="List My Applications",
     description="""
-### 📂 My Applications
+### GET /api/v1/applications/my/
 
-List all applications submitted by the authenticated job seeker.
+- **Purpose:** Retrieve all applications submitted by the currently authenticated user (Job Seeker).
+- **Access:** Job Seeker only.
+- **Response:** List of application objects with details such as job, company, status, cover letter, resume, and timestamps.
+- **Behavior:** Sorted by creation date descending (most recent first).
 """,
 )
-class MyApplicationsView(generics.ListAPIView):
-    """
-    List all applications submitted by the authenticated job seeker.
-    """
-
+class MyApplicationListView(generics.ListAPIView):
     serializer_class = ApplicationReadSerializer
     permission_classes = [IsAuthenticated, IsJobSeeker]
 
     def get_queryset(self):
-        return (
-            Application.objects.select_related("job", "job__company")
-            .filter(applicant=self.request.user)
-            .order_by("-created_at")
-        )
+        return Application.objects.filter(applicant=self.request.user)
 
 
-# ============================================================
-# WITHDRAW APPLICATION (JOB SEEKER)
-# ============================================================
 @extend_schema(
     tags=["Applications"],
+    summary="Retrieve, Update Status of, or Withdraw an Application",
     description="""
-### ❌ Withdraw Application
+### GET / PATCH / DELETE /api/v1/applications/{application_id}/
 
-Only the original applicant may withdraw their application.
+**GET**
+- **Purpose:** Retrieve full details of a specific application.
+- **Access:** 
+  - Applicant (owner of the application)
+  - Job Owner (employer of the job)
+  - Admin
+- **Response:** Single application object with all relevant fields.
+
+**PATCH**
+- **Purpose:** Update the status of an application (e.g., 'REVIEWED', 'SHORTLISTED', 'ACCEPTED', 'REJECTED').
+- **Access:** Job Owner or Admin.
+- **Behavior:** Sets `reviewed_at` timestamp automatically.
+
+**DELETE**
+- **Purpose:** Withdraw an application (soft delete).
+- **Access:** Applicant only.
+- **Behavior:** Marks the application status as `WITHDRAWN` instead of deleting the record.
+- **Response:** Updated application object with `WITHDRAWN` status.
 """,
 )
-class WithdrawApplicationView(generics.UpdateAPIView):
-    serializer_class = ApplicationReadSerializer
-    permission_classes = [IsAuthenticated, IsJobSeeker]
+class ApplicationDetailView(generics.RetrieveUpdateDestroyAPIView):
     queryset = Application.objects.all()
 
-    def update(self, request, *args, **kwargs):
-        application = self.get_object()
+    def get_serializer_class(self):
+        if self.request.method == "PATCH":
+            return ApplicationStatusUpdateSerializer
+        return ApplicationReadSerializer
 
-        if application.applicant != request.user:
-            return Response(status=status.HTTP_403_FORBIDDEN)
+    def get_permissions(self):
+        if self.request.method == "DELETE":
+            self.permission_classes = [IsAuthenticated, IsApplicantOwner]
+        elif self.request.method == "PATCH":
+            self.permission_classes = [IsAuthenticated, IsJobOwner | IsAdmin]
+        else:  # GET
+            self.permission_classes = [
+                IsAuthenticated,
+                IsApplicantOwner | IsJobOwner | IsAdmin,
+            ]
+        return super().get_permissions()
 
-        try:
-            withdraw_application(application)
-        except ValueError as e:
-            return Response({"detail": str(e)}, status=400)
-
-        return Response(ApplicationReadSerializer(application).data)
-
-
-# ============================================================
-# APPLICATIONS FOR A JOB (EMPLOYER)
-# ============================================================
-@extend_schema(
-    tags=["Applications"],
-    description="""
-### 📥 Job Applications
-
-Employers can view applications **only for jobs they created**.
-""",
-)
-class JobApplicationsView(generics.ListAPIView):
-    serializer_class = ApplicationReadSerializer
-    permission_classes = [IsAuthenticated, IsEmployerOwner]
-
-    def get_queryset(self):
-        return Application.objects.select_related("job", "applicant").filter(
-            job_id=self.kwargs["job_id"],
-            job__created_by=self.request.user,
-        )
-
-
-# ============================================================
-# UPDATE APPLICATION STATUS (EMPLOYER / ADMIN)
-# ============================================================
-@extend_schema(
-    tags=["Applications"],
-    description="""
-### 🔄 Update Application Status
-
-Allowed for:
-- Employer (job owner)
-- Admin
-
-Statuses:
-- Reviewed
-- Shortlisted
-- Accepted
-- Rejected
-""",
-)
-class UpdateApplicationStatusView(generics.UpdateAPIView):
-    serializer_class = ApplicationStatusUpdateSerializer
-    permission_classes = [IsAuthenticated, IsEmployerOwner | IsAdmin]
-    queryset = Application.objects.all()
-
-    def perform_update(self, serializer):
-        update_application_status(
-            self.get_object(),
-            serializer.validated_data["status"],
-        )
-
-
-# ============================================================
-# ADMIN – ALL APPLICATIONS
-# ============================================================
-@extend_schema(
-    tags=["Applications"],
-    description="""
-### 🛠 Admin – All Applications
-
-Admin-only endpoint to list **all applications in the system**.
-""",
-)
-class AdminAllApplicationsView(generics.ListAPIView):
-    serializer_class = ApplicationReadSerializer
-    permission_classes = [IsAuthenticated, IsAdmin]
-
-    def get_queryset(self):
-        return (
-            Application.objects.select_related("job", "job__company", "applicant")
-            .all()
-            .order_by("-created_at")
-        )
+    def perform_destroy(self, instance):
+        # Instead of deleting, we mark as withdrawn
+        instance.status = Application.Status.WITHDRAWN
+        instance.save()

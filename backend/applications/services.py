@@ -9,22 +9,20 @@ def withdraw_application(application):
     Allowed only if status is APPLIED.
     """
     if application.status != Application.Status.APPLIED:
-        raise ValueError("Only applications in APPLIED state can be withdrawn.")
+        raise ValueError("Only APPLIED applications can be withdrawn.")
 
     application.status = Application.Status.WITHDRAWN
     application.withdrawn_at = timezone.now()
     application.save(update_fields=["status", "withdrawn_at"])
-    return application
 
 
-def update_application_status(application, status):
+def update_application_status(application, new_status):
     """
     Update application status (Employer/Admin).
     """
     if application.status == Application.Status.WITHDRAWN:
         raise ValueError("Withdrawn applications cannot be updated.")
 
-    application.status = status
+    application.status = new_status
     application.reviewed_at = timezone.now()
     application.save(update_fields=["status", "reviewed_at"])
-    return application
