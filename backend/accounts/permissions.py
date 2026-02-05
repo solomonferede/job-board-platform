@@ -20,4 +20,5 @@ class IsEmployer(BasePermission):
     message = "You must be an employer user to perform this action."
 
     def has_permission(self, request, view):
-        return request.user.is_authenticated and request.user.is_employer()
+        # Check if user is authenticated and then check if they are an employer
+        return request.user and request.user.is_authenticated and request.user.is_employer()

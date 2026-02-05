@@ -49,6 +49,7 @@ INSTALLED_APPS = [
     'accounts',
     'jobs',
     'applications',
+    'pytest_django', # Added for pytest-django integration
 ]
 
 MIDDLEWARE = [
@@ -94,6 +95,9 @@ DATABASES = {
         'PORT': env("DB_PORT"),
     }
 }
+
+# Pytest-django test runner
+TEST_RUNNER = 'pytest_django.tools.DjangoTestRunner'
 
 
 # Password validation

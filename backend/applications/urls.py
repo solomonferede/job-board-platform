@@ -12,7 +12,7 @@ urlpatterns = [
         name="my-application-list",
     ),
     path(
-        "applications/<int:pk>/",
+        "<int:pk>/",
         ApplicationDetailView.as_view(),
         name="application-detail",
     ),

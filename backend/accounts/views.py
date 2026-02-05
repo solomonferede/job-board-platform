@@ -2,15 +2,16 @@ from drf_spectacular.utils import extend_schema
 from rest_framework import generics, permissions, status
 from rest_framework.generics import GenericAPIView
 from rest_framework.response import Response
-from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
+from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView, TokenBlacklistView
 
 from .models import User
-from .permissions import IsAdmin
+from .permissions import IsAdmin, IsEmployer
 from .serializers import (
     AdminUserSerializer,
     ProfileUpdateSerializer,
     RegisterSerializer,
     UserSerializer,
+    ChangePasswordSerializer,
 )
 
 # =========================
@@ -20,8 +21,8 @@ from .serializers import (
 
 @extend_schema(
     tags=["Authentication"],
+    summary="Obtain JWT Access and Refresh Tokens",
     description=(
-        "Obtain JWT **access** and **refresh** tokens.\n\n"
         "### 🔓 Access\n"
         "- **Public endpoint** (authenticate using valid **username** and **password**\n\n"
         "### ⏱ Token Lifetime\n"
@@ -56,6 +57,7 @@ class CustomTokenObtainPairView(TokenObtainPairView):
 
 @extend_schema(
     tags=["Authentication"],
+    summary="Refresh JWT Access Token",
     description=(
         "Refresh JWT **access token**.\n\n"
         "### 🔓 Access\n"
@@ -89,6 +91,33 @@ class CustomTokenRefreshView(TokenRefreshView):
 
 @extend_schema(
     tags=["Authentication"],
+    summary="Blacklist JWT Refresh Token (Logout)",
+    description=(
+        "Blacklist a JWT refresh token to log out the user.\n\n"
+        "### 🔐 Access\n"
+        "- Requires valid **JWT access token**\n\n"
+        "### 🗑 Behavior\n"
+        "- Invalidates the provided refresh token, preventing further use.\n"
+        "- The access token remains valid until its expiration.\n\n"
+        "### 📥 Example Request Body\n"
+        "```json\n"
+        "{\n"
+        '  "refresh": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."\n'
+        "}\n"
+        "```"
+    ),
+    responses={
+        200: {"description": "Successfully logged out."},
+        401: {"description": "Authentication required or invalid token."},
+    },
+)
+class LogoutView(TokenBlacklistView):
+    permission_classes = (permissions.IsAuthenticated,)
+
+
+@extend_schema(
+    tags=["Authentication"],
+    summary="Register a New Job Seeker Account",
     description=(
         "Register as a **Job Seeker**.\n\n"
         "### 🔓 Access\n"
@@ -148,6 +177,7 @@ class RegisterView(generics.CreateAPIView):
 
 @extend_schema(
     tags=["User Profile"],
+    summary="Manage Authenticated User Profile",
     description=(
         "Authenticated user profile management.\n\n"
         "### 🔐 Access\n"
@@ -167,6 +197,7 @@ class ProfileView(GenericAPIView):
     serializer_class = UserSerializer  # default serializer for GET responses
 
     @extend_schema(
+        summary="Retrieve Authenticated User Profile",
         description=(
             "Retrieve authenticated user's profile.\n\n"
             "### 📄 Response Includes\n"
@@ -183,6 +214,7 @@ class ProfileView(GenericAPIView):
 
     @extend_schema(
         request=ProfileUpdateSerializer,
+        summary="Update Authenticated User Profile",
         description=(
             "Update your profile information.\n\n"
             "### ✏️ Updatable Fields\n"
@@ -215,6 +247,7 @@ class ProfileView(GenericAPIView):
         return Response(UserSerializer(request.user).data)
 
     @extend_schema(
+        summary="Deactivate Authenticated User Account",
         description=(
             "Deactivate your account.\n\n"
             "### 🧹 Behavior\n"
@@ -231,6 +264,58 @@ class ProfileView(GenericAPIView):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
+@extend_schema(
+    tags=["User Profile"],
+    summary="Change User Password",
+    description=(
+        "Allows an authenticated user to change their password.\n\n"
+        "### 🔐 Access\n"
+        "- Requires valid **JWT access token**\n\n"
+        "### 📥 Example Request Body\n"
+        "```json\n"
+        "{\n"
+        '  "old_password": "oldsecurepassword123",\n'
+        '  "new_password": "newsecurepassword123",\n'
+        '  "confirm_new_password": "newsecurepassword123"\n'
+        "}\n"
+        "```"
+    ),
+    request=ChangePasswordSerializer,
+    responses={
+        200: {"description": "Password updated successfully."},
+        400: {"description": "Invalid data or old password mismatch."},
+        401: {"description": "Authentication required."},
+    },
+)
+class ChangePasswordView(generics.UpdateAPIView):
+    serializer_class = ChangePasswordSerializer
+    permission_classes = (permissions.IsAuthenticated,)
+
+    def get_object(self):
+        return self.request.user
+
+    def update(self, request, *args, **kwargs):
+        self.object = self.get_object()
+        serializer = self.get_serializer(data=request.data)
+
+        if serializer.is_valid():
+            # Check old password
+            if not self.object.check_password(serializer.data.get("old_password")):
+                return Response(
+                    {"old_password": ["Wrong password."]},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            # set_password also hashes the password automatically
+            self.object.set_password(serializer.data.get("new_password"))
+            self.object.save()
+            return Response(
+                {"detail": "Password updated successfully."} ,
+                status=status.HTTP_200_OK,
+            )
+
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
 # =========================
 # Admin Management
 # =========================
@@ -238,6 +323,7 @@ class ProfileView(GenericAPIView):
 
 @extend_schema(
     tags=["Admin Management"],
+    summary="Admin-only User Management",
     description=(
         "Admin-only user management.\n\n"
         "### 🔐 Access\n"
@@ -261,6 +347,7 @@ class AdminUserListCreateView(generics.ListCreateAPIView):
 
 @extend_schema(
     tags=["Admin Management"],
+    summary="Admin-only User Detail Operations",
     description=(
         "Admin user detail operations.\n\n"
         "### 🔐 Access\n"
@@ -274,3 +361,4 @@ class AdminUserRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
     queryset = User.objects.all()
     serializer_class = AdminUserSerializer
     permission_classes = [permissions.IsAuthenticated, IsAdmin]
+
