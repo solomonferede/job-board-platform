@@ -1,18 +1,24 @@
+from django.contrib.auth import get_user_model
+from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import extend_schema
-from rest_framework import generics, permissions, status
-from rest_framework.generics import GenericAPIView
+from rest_framework import filters, generics, permissions, status
 from rest_framework.response import Response
-from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView, TokenBlacklistView
+from rest_framework_simplejwt.views import (
+    TokenBlacklistView,
+    TokenObtainPairView,
+    TokenRefreshView,
+)
 
-from .models import User
-from .permissions import IsAdmin, IsEmployer
+from .permissions import IsAdmin
 from .serializers import (
     AdminUserSerializer,
+    ChangePasswordSerializer,
     ProfileUpdateSerializer,
     RegisterSerializer,
     UserSerializer,
-    ChangePasswordSerializer,
 )
+
+User = get_user_model()
 
 # =========================
 # Authentication
@@ -192,9 +198,31 @@ class RegisterView(generics.CreateAPIView):
         403: {"description": "Account is deactivated"},
     },
 )
-class ProfileView(GenericAPIView):
+class ProfileView(generics.RetrieveUpdateDestroyAPIView):
+    """
+    Combined view for profile operations using RetrieveUpdateDestroyAPIView.
+    GET uses UserSerializer, PATCH uses ProfileUpdateSerializer, DELETE soft deletes.
+    """
+
     permission_classes = [permissions.IsAuthenticated]
-    serializer_class = UserSerializer  # default serializer for GET responses
+
+    def get_queryset(self):
+        """Return queryset containing only the current user."""
+        return User.objects.filter(id=self.request.user.id)
+
+    def get_serializer_class(self):
+        """
+        Return appropriate serializer based on HTTP method.
+        - GET: UserSerializer (full profile view)
+        - PATCH/PUT: ProfileUpdateSerializer (limited update fields)
+        """
+        if self.request.method in ["GET"]:
+            return UserSerializer
+        return ProfileUpdateSerializer
+
+    def get_object(self):
+        """Always return the current authenticated user."""
+        return self.request.user
 
     @extend_schema(
         summary="Retrieve Authenticated User Profile",
@@ -203,14 +231,15 @@ class ProfileView(GenericAPIView):
             "### 📄 Response Includes\n"
             "- id, username, email\n"
             "- first_name, last_name\n"
-            "- role\n\n"
+            "- role\n"
+            "- company (if applicable)\n\n"
             "⚠️ Sensitive fields (e.g. password) are never exposed."
         ),
         responses={200: UserSerializer},
     )
-    def get(self, request, *args, **kwargs):
-        serializer = self.get_serializer(request.user)
-        return Response(serializer.data)
+    def retrieve(self, request, *args, **kwargs):
+        """Override to provide custom documentation for GET."""
+        return super().retrieve(request, *args, **kwargs)
 
     @extend_schema(
         request=ProfileUpdateSerializer,
@@ -223,7 +252,8 @@ class ProfileView(GenericAPIView):
             "- email (must remain unique)\n\n"
             "### 🚫 Restricted Fields\n"
             "- username\n"
-            "- role\n\n"
+            "- role\n"
+            "- company\n\n"
             "### 📥 Example Request Body\n"
             "```json\n"
             "{\n"
@@ -238,13 +268,13 @@ class ProfileView(GenericAPIView):
             400: {"description": "Validation error"},
         },
     )
-    def patch(self, request, *args, **kwargs):
-        serializer = ProfileUpdateSerializer(
-            request.user, data=request.data, partial=True
-        )
-        serializer.is_valid(raise_exception=True)
+    def update(self, request, *args, **kwargs):
+        """Override to provide custom documentation for PATCH/PUT."""
+        return super().update(request, *args, **kwargs)
+
+    def perform_update(self, serializer):
+        """Save the updated user profile."""
         serializer.save()
-        return Response(UserSerializer(request.user).data)
 
     @extend_schema(
         summary="Deactivate Authenticated User Account",
@@ -258,10 +288,17 @@ class ProfileView(GenericAPIView):
         ),
         responses={204: {"description": "Account deactivated"}},
     )
-    def delete(self, request, *args, **kwargs):
-        request.user.is_active = False
-        request.user.save()
+    def destroy(self, request, *args, **kwargs):
+        """Override to soft delete (deactivate) instead of hard delete."""
+        user = self.get_object()
+        user.is_active = False
+        user.save()
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+    def partial_update(self, request, *args, **kwargs):
+        """Handle PATCH requests (partial updates)."""
+        kwargs["partial"] = True
+        return self.update(request, *args, **kwargs)
 
 
 @extend_schema(
@@ -275,8 +312,7 @@ class ProfileView(GenericAPIView):
         "```json\n"
         "{\n"
         '  "old_password": "oldsecurepassword123",\n'
-        '  "new_password": "newsecurepassword123",\n'
-        '  "confirm_new_password": "newsecurepassword123"\n'
+        '  "new_password": "newsecurepassword123"\n'
         "}\n"
         "```"
     ),
@@ -289,31 +325,24 @@ class ProfileView(GenericAPIView):
 )
 class ChangePasswordView(generics.UpdateAPIView):
     serializer_class = ChangePasswordSerializer
-    permission_classes = (permissions.IsAuthenticated,)
+    permission_classes = [permissions.IsAuthenticated]
 
-    def get_object(self):
-        return self.request.user
+    def update(self, request):
+        serializer = self.get_serializer(
+            data=request.data, context={"request": request}
+        )
+        serializer.is_valid(raise_exception=True)
 
-    def update(self, request, *args, **kwargs):
-        self.object = self.get_object()
-        serializer = self.get_serializer(data=request.data)
-
-        if serializer.is_valid():
-            # Check old password
-            if not self.object.check_password(serializer.data.get("old_password")):
-                return Response(
-                    {"old_password": ["Wrong password."]},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-            # set_password also hashes the password automatically
-            self.object.set_password(serializer.data.get("new_password"))
-            self.object.save()
+        user = request.user
+        if not user.check_password(serializer.validated_data["old_password"]):
             return Response(
-                {"detail": "Password updated successfully."} ,
-                status=status.HTTP_200_OK,
+                {"old_password": ["Wrong password."]},
+                status=status.HTTP_400_BAD_REQUEST,
             )
 
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        user.set_password(serializer.validated_data["new_password"])
+        user.save()
+        return Response({"detail": "Password updated successfully."})
 
 
 # =========================
@@ -343,6 +372,14 @@ class AdminUserListCreateView(generics.ListCreateAPIView):
     queryset = User.objects.all()
     serializer_class = AdminUserSerializer
     permission_classes = [permissions.IsAuthenticated, IsAdmin]
+    filter_backends = [
+        DjangoFilterBackend,
+        filters.SearchFilter,
+        filters.OrderingFilter,
+    ]
+    filterset_fields = ["role", "is_active"]
+    search_fields = ["username", "email", "first_name", "last_name"]
+    ordering_fields = ["date_joined", "last_login"]
 
 
 @extend_schema(
@@ -361,4 +398,3 @@ class AdminUserRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
     queryset = User.objects.all()
     serializer_class = AdminUserSerializer
     permission_classes = [permissions.IsAuthenticated, IsAdmin]
-

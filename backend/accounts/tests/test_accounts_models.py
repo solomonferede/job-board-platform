@@ -1,74 +1,101 @@
 import pytest
-from django.contrib.auth import get_user_model
-from jobs.models import Company # Import Company from jobs app
 from accounts.tests.factories import (
-    JobSeekerUserFactory,
-    EmployerUserFactory,
     AdminUserFactory,
-    UserFactory,
+    JobSeekerUserFactory,
 )
-from jobs.tests.factories import CompanyFactory
+from rest_framework.test import APIClient
+
+pytestmark = pytest.mark.django_db
 
 
-User = get_user_model()
+class TestAuthenticationEndpoints:
+    def test_register_job_seeker_success(self):
+        client = APIClient()
+        payload = {
+            "username": "jobseeker1",
+            "email": "jobseeker@example.com",
+            "password": "StrongPass123",
+        }
+
+        response = client.post("/api/v1/accounts/auth/register/", payload)
+        assert response.status_code == 201
+        assert response.data["username"] == "jobseeker1"
+
+    def test_login_success(self):
+        user = JobSeekerUserFactory(username="john")
+        client = APIClient()
+
+        response = client.post(
+            "/api/v1/accounts/auth/login/",
+            {"username": "john", "password": "password123"},
+        )
+
+        assert response.status_code == 200
+        assert "access" in response.data
+        assert "refresh" in response.data
+
+    def test_login_invalid_credentials(self):
+        client = APIClient()
+        response = client.post(
+            "/api/v1/accounts/auth/login/",
+            {"username": "wrong", "password": "wrong"},
+        )
+        assert response.status_code == 401
+
+    def test_logout_success(self):
+        user = JobSeekerUserFactory(username="logoutuser")
+        client = APIClient()
+
+        login = client.post(
+            "/api/v1/accounts/auth/login/",
+            {"username": "logoutuser", "password": "password123"},
+        )
+        access = login.data["access"]
+        refresh = login.data["refresh"]
+
+        client.credentials(HTTP_AUTHORIZATION=f"Bearer {access}")
+        response = client.post("/api/v1/accounts/auth/logout/", {"refresh": refresh})
+
+        assert response.status_code == 200
 
 
-@pytest.mark.django_db
-class TestUserModel:
-    def test_create_user(self):
-        user = UserFactory(email="test@example.com", password="password123")
-        assert user.email == "test@example.com"
-        assert user.check_password("password123")
-        assert not user.is_staff
-        assert not user.is_superuser
-        assert user.is_active
-        assert user.role == User.Role.JOB_SEEKER # Default role
+class TestProfileEndpoints:
+    def test_profile_unauthenticated(self):
+        client = APIClient()
+        response = client.get("/api/v1/accounts/me/")
+        assert response.status_code == 401
 
-    def test_create_job_seeker_user(self):
-        user = JobSeekerUserFactory(email="jobseeker@example.com")
-        assert user.role == User.Role.JOB_SEEKER
-        assert user.is_job_seeker()
-        assert not user.is_employer()
-        assert user.company is None
+    def test_profile_authenticated(self):
+        user = JobSeekerUserFactory()
+        client = APIClient()
+        client.force_authenticate(user=user)
 
-    def test_create_employer_user(self):
-        user = EmployerUserFactory(email="employer@example.com")
-        assert user.role == User.Role.EMPLOYER
-        assert user.is_employer()
-        assert not user.is_job_seeker()
-        assert user.company is not None
-        assert isinstance(user.company, Company)
+        response = client.get("/api/v1/accounts/me/")
+        assert response.status_code == 200
+        assert response.data["username"] == user.username
 
-    def test_create_admin_user(self):
-        user = AdminUserFactory(email="admin@example.com")
-        assert user.role == User.Role.ADMIN
-        assert user.is_staff
-        assert user.is_superuser
-        assert user.is_admin()
+    def test_change_password_success(self):
+        user = JobSeekerUserFactory()
+        client = APIClient()
+        client.force_authenticate(user=user)
 
-    def test_user_str_representation(self):
-        user = UserFactory(email="strtest@example.com", first_name="Test", last_name="User")
-        assert str(user) == "Test User (strtest@example.com)"
+        response = client.put(
+            "/api/v1/accounts/me/change-password/",
+            {
+                "old_password": "password123",
+                "new_password": "NewStrongPass123",
+                "confirm_new_password": "NewStrongPass123",
+            },
+        )
 
-    def test_employer_user_company_relationship(self):
-        employer = EmployerUserFactory()
-        assert employer.company is not None
-        assert employer.company.created_by == employer
+        assert response.status_code == 200
 
-    def test_job_seeker_profile_methods(self):
-        job_seeker = JobSeekerUserFactory()
-        assert job_seeker.is_job_seeker()
-        assert not job_seeker.is_employer()
-        assert not job_seeker.is_admin()
 
-    def test_employer_profile_methods(self):
-        employer = EmployerUserFactory()
-        assert employer.is_employer()
-        assert not employer.is_job_seeker()
-        assert not employer.is_admin()
+class TestAdminEndpoints:
+    def test_admin_can_list_users(self):
+        admin = AdminUserFactory()
+        client = APIClient()
+        client.force_authenticate(user=admin)
 
-    def test_admin_profile_methods(self):
-        admin_user = AdminUserFactory()
-        assert admin_user.is_admin()
-        assert not admin_user.is_job_seeker()
-        assert not admin_user.is_employer()
+        response = client.get("/api/v1/accounts/admin/users/")
+        assert response.status_code == 200

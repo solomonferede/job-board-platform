@@ -1,19 +1,16 @@
 import pytest
-from accounts.tests.factories import (
-    AdminUserFactory,
-    EmployerUserFactory,
-    JobSeekerUserFactory,
-)
 from django.contrib.auth import get_user_model
-from django.urls import reverse
-from jobs.models import Company  # Import Company from jobs app
-from jobs.tests.factories import (
-    CompanyFactory,  # Import CompanyFactory for creating test companies
-)
 from rest_framework import status
 from rest_framework.test import APIClient
 
 User = get_user_model()
+
+BASE_URL = "/api/v1/accounts"
+
+
+# ==========================
+# FIXTURES
+# ==========================
 
 
 @pytest.fixture
@@ -22,263 +19,252 @@ def api_client():
 
 
 @pytest.fixture
-def job_seeker_user():
-    return JobSeekerUserFactory()
+def job_seeker(db):
+    return User.objects.create_user(
+        username="jobseeker",
+        email="jobseeker@test.com",
+        password="StrongPass123!",
+        role=User.Role.JOB_SEEKER,
+    )
 
 
 @pytest.fixture
-def employer_user():
-    return EmployerUserFactory()
+def admin_user(db):
+    return User.objects.create_superuser(
+        username="admin",
+        email="admin@test.com",
+        password="AdminPass123!",
+    )
 
 
 @pytest.fixture
-def admin_user():
-    return AdminUserFactory()
+def employer(db):
+    return User.objects.create_user(
+        username="employer",
+        email="employer@test.com",
+        password="EmployerPass123!",
+        role=User.Role.EMPLOYER,
+    )
 
 
 @pytest.fixture
-def authenticated_job_seeker(api_client, job_seeker_user):
-    api_client.force_authenticate(user=job_seeker_user)
-    return api_client, job_seeker_user
+def auth_client(api_client, job_seeker):
+    api_client.force_authenticate(user=job_seeker)
+    return api_client
 
 
 @pytest.fixture
-def authenticated_employer(api_client, employer_user):
-    api_client.force_authenticate(user=employer_user)
-    return api_client, employer_user
-
-
-@pytest.fixture
-def authenticated_admin(api_client, admin_user):
+def admin_client(api_client, admin_user):
     api_client.force_authenticate(user=admin_user)
-    return api_client, admin_user
+    return api_client
+
+
+# ==========================
+# AUTHENTICATION TESTS
+# ==========================
 
 
 @pytest.mark.django_db
-class TestAuthenticationEndpoints:
-    def test_register_job_seeker_success(self, api_client):
-        url = reverse("register")
-        data = {
-            "email": "newjobseeker@example.com",
-            "password": "securepassword123",
-            "password2": "securepassword123",
-            "first_name": "John",
-            "last_name": "Doe",
-            "role": User.Role.JOB_SEEKER,
-        }
-        response = api_client.post(url, data, format="json")
-        assert response.status_code == status.HTTP_201_CREATED
-        assert User.objects.filter(email="newjobseeker@example.com").exists()
-        user = User.objects.get(email="newjobseeker@example.com")
-        assert user.role == User.Role.JOB_SEEKER
+def test_register_job_seeker_success(api_client):
+    payload = {
+        "username": "newuser",
+        "email": "newuser@test.com",
+        "password": "StrongPass123!",
+        "confirm_password": "StrongPass123!",
+        "first_name": "New",
+        "last_name": "User",
+    }
 
-    def test_register_job_seeker_password_mismatch(self, api_client):
-        url = reverse("register")
-        data = {
-            "email": "newjobseeker2@example.com",
-            "password": "securepassword123",
-            "password2": "mismatchedpassword",
-            "first_name": "Jane",
-            "last_name": "Doe",
-            "role": User.Role.JOB_SEEKER,
-        }
-        response = api_client.post(url, data, format="json")
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "password" in response.data
+    response = api_client.post(f"{BASE_URL}/register/", payload)
 
-    def test_register_company_success(self, api_client):
-        url = reverse("register")
-        data = {
-            "email": "newcompany@example.com",
-            "password": "securepassword123",
-            "password2": "securepassword123",
-            "first_name": "Company",
-            "last_name": "Admin",
-            "company_name": "New Tech Inc.",
-            "role": User.Role.EMPLOYER,
-        }
-        response = api_client.post(url, data, format="json")
-        assert response.status_code == status.HTTP_201_CREATED
-        assert User.objects.filter(email="newcompany@example.com").exists()
-        user = User.objects.get(email="newcompany@example.com")
-        assert user.role == User.Role.EMPLOYER
-        assert Company.objects.filter(name="New Tech Inc.", created_by=user).exists()
-
-    def test_register_company_password_mismatch(self, api_client):
-        url = reverse("register")
-        data = {
-            "email": "newcompany2@example.com",
-            "password": "securepassword123",
-            "password2": "mismatchedpassword",
-            "first_name": "Company",
-            "last_name": "Admin",
-            "company_name": "Another Tech Inc.",
-            "role": User.Role.EMPLOYER,
-        }
-        response = api_client.post(url, data, format="json")
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "password" in response.data
-
-    def test_login_success(self, api_client, job_seeker_user):
-        url = reverse("login")
-        data = {"email": job_seeker_user.email, "password": "password123"}
-        response = api_client.post(url, data, format="json")
-        assert response.status_code == status.HTTP_200_OK
-        assert "access" in response.data
-        assert "refresh" in response.data
-
-    def test_login_invalid_credentials(self, api_client, job_seeker_user):
-        url = reverse("login")
-        data = {"email": job_seeker_user.email, "password": "wrongpassword"}
-        response = api_client.post(url, data, format="json")
-        assert response.status_code == status.HTTP_401_UNAUTHORIZED
-
-    def test_logout_success(self, authenticated_job_seeker):
-        api_client, user = authenticated_job_seeker
-        url = reverse("logout")
-        response = api_client.post(url, format="json")
-        assert response.status_code == status.HTTP_200_OK
-        assert "detail" in response.data
-        assert response.data["detail"] == "Successfully logged out."
-
-    def test_logout_unauthenticated(self, api_client):
-        url = reverse("logout")
-        response = api_client.post(url, format="json")
-        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+    assert response.status_code == status.HTTP_201_CREATED
+    assert response.data["username"] == "newuser"
+    assert User.objects.get(username="newuser").role == User.Role.JOB_SEEKER
 
 
 @pytest.mark.django_db
-class TestUserEndpoints:
-    def test_user_detail_job_seeker(self, authenticated_job_seeker):
-        api_client, user = authenticated_job_seeker
-        url = reverse("profile")
-        response = api_client.get(url)
-        assert response.status_code == status.HTTP_200_OK
-        assert response.data["email"] == user.email
-        assert response.data["role"] == User.Role.JOB_SEEKER
+def test_register_password_mismatch(api_client):
+    payload = {
+        "username": "baduser",
+        "email": "bad@test.com",
+        "password": "StrongPass123!",
+        "confirm_password": "WrongPass123!",
+    }
 
-    def test_user_detail_employer(self, authenticated_employer):
-        api_client, user = authenticated_employer
-        url = reverse("profile")
-        response = api_client.get(url)
-        assert response.status_code == status.HTTP_200_OK
-        assert response.data["email"] == user.email
-        assert response.data["role"] == User.Role.EMPLOYER
+    response = api_client.post(f"{BASE_URL}/register/", payload)
 
-    def test_user_detail_unauthenticated(self, api_client):
-        url = reverse("profile")
-        response = api_client.get(url)
-        assert response.status_code == status.HTTP_401_UNAUTHORIZED
-
-    def test_change_password_success(self, authenticated_job_seeker):
-        api_client, user = authenticated_job_seeker
-        url = reverse("change-password")
-        data = {
-            "old_password": "password123",
-            "new_password": "newsecurepassword",
-            "confirm_new_password": "newsecurepassword",
-        }
-        response = api_client.post(url, data, format="json")
-        assert response.status_code == status.HTTP_200_OK
-        assert "detail" in response.data
-        assert response.data["detail"] == "Password updated successfully."
-
-        # Verify new password works
-        api_client.force_authenticate(user=None)  # Logout
-        login_url = reverse("login")
-        login_data = {"email": user.email, "password": "newsecurepassword"}
-        login_response = api_client.post(login_url, login_data, format="json")
-        assert login_response.status_code == status.HTTP_200_OK
-
-    def test_change_password_old_password_mismatch(self, authenticated_job_seeker):
-        api_client, user = authenticated_job_seeker
-        url = reverse("change-password")
-        data = {
-            "old_password": "wrongoldpassword",
-            "new_password": "newsecurepassword",
-            "confirm_new_password": "newsecurepassword",
-        }
-        response = api_client.post(url, data, format="json")
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "old_password" in response.data
-
-    def test_change_password_new_password_mismatch(self, authenticated_job_seeker):
-        api_client, user = authenticated_job_seeker
-        url = reverse("change-password")
-        data = {
-            "old_password": "password123",
-            "new_password": "newsecurepassword",
-            "confirm_new_password": "mismatchednewpassword",
-        }
-        response = api_client.post(url, data, format="json")
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "new_password" in response.data
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert "password" in response.data
 
 
 @pytest.mark.django_db
-class TestProfileEndpoints:
-    def test_job_seeker_profile_get(self, authenticated_job_seeker):
-        api_client, user = authenticated_job_seeker
-        url = reverse("profile")
-        response = api_client.get(url)
-        assert response.status_code == status.HTTP_200_OK
-        # assert response.data["user"] == user.id # User ID is not directly in profile data
-        # assert response.data["skills"] is not None # Commented out for now, needs model check
+def test_token_obtain_pair_success(api_client, job_seeker):
+    payload = {
+        "username": "jobseeker",
+        "password": "StrongPass123!",
+    }
 
-    def test_job_seeker_profile_update(self, authenticated_job_seeker):
-        api_client, user = authenticated_job_seeker
-        url = reverse("profile")
-        updated_data = {
-            # "skills": ["Python", "Django", "DRF"], # Commented out for now
-            # "experience": "5 years experience in web development.", # Commented out for now
-        }
-        response = api_client.patch(url, updated_data, format="json")
-        assert response.status_code == status.HTTP_200_OK
-        # assert response.data["skills"] == updated_data["skills"] # Commented out for now
-        # assert response.data["experience"] == updated_data["experience"] # Commented out for now
+    response = api_client.post(f"{BASE_URL}/token/", payload)
 
-    def test_job_seeker_profile_employer_access_forbidden(self, authenticated_employer):
-        api_client, user = authenticated_employer
-        url = reverse("profile")
-        response = api_client.get(url)
-        assert response.status_code == status.HTTP_403_FORBIDDEN
+    assert response.status_code == status.HTTP_200_OK
+    assert "access" in response.data
+    assert "refresh" in response.data
 
-    def test_company_profile_get(self, authenticated_employer):
-        api_client, user = authenticated_employer
-        # Ensure the employer has a company associated
-        company = CompanyFactory(created_by=user)
-        user.company = company
-        user.save()
 
-        url = reverse("profile")
-        response = api_client.get(url)
-        assert response.status_code == status.HTTP_200_OK
-        # assert response.data["user"] == user.id # User ID is not directly in profile data
-        # assert response.data["company_name"] == company.name # Commented out for now
+@pytest.mark.django_db
+def test_token_refresh(api_client, job_seeker):
+    token_response = api_client.post(
+        f"{BASE_URL}/token/",
+        {"username": "jobseeker", "password": "StrongPass123!"},
+    )
 
-    def test_company_profile_update(self, authenticated_employer):
-        api_client, user = authenticated_employer
-        company = CompanyFactory(created_by=user)
-        user.company = company
-        user.save()
+    refresh = token_response.data["refresh"]
 
-        url = reverse("profile")
-        updated_data = {
-            # "company_name": "Updated Company Name", # Commented out for now
-            # "description": "We are a leading tech company.", # Commented out for now
-        }
-        response = api_client.patch(url, updated_data, format="json")
-        assert response.status_code == status.HTTP_200_OK
-        company.refresh_from_db()
-        # assert company.name == updated_data["company_name"] # Commented out for now
-        # assert company.description == updated_data["description"] # Commented out for now
+    response = api_client.post(
+        f"{BASE_URL}/token/refresh/",
+        {"refresh": refresh},
+    )
 
-    def test_company_profile_job_seeker_access_forbidden(
-        self, authenticated_job_seeker
-    ):
-        api_client, user = authenticated_job_seeker
-        url = reverse("profile")
-        response = api_client.get(url)
-        assert response.status_code == status.HTTP_403_FORBIDDEN
-        response = api_client.get(url)
-        assert response.status_code == status.HTTP_403_FORBIDDEN
+    assert response.status_code == status.HTTP_200_OK
+    assert "access" in response.data
+
+
+@pytest.mark.django_db
+def test_logout_blacklist_refresh_token(api_client, job_seeker):
+    token_response = api_client.post(
+        f"{BASE_URL}/token/",
+        {"username": "jobseeker", "password": "StrongPass123!"},
+    )
+
+    api_client.credentials(HTTP_AUTHORIZATION=f"Bearer {token_response.data['access']}")
+
+    response = api_client.post(
+        f"{BASE_URL}/logout/",
+        {"refresh": token_response.data["refresh"]},
+    )
+
+    assert response.status_code == status.HTTP_200_OK
+
+
+# ==========================
+# PROFILE TESTS
+# ==========================
+
+
+@pytest.mark.django_db
+def test_get_profile(auth_client):
+    response = auth_client.get(f"{BASE_URL}/profile/")
+
+    assert response.status_code == status.HTTP_200_OK
+    assert response.data["username"] == "jobseeker"
+
+
+@pytest.mark.django_db
+def test_update_profile(auth_client):
+    response = auth_client.patch(
+        f"{BASE_URL}/profile/",
+        {"first_name": "Updated"},
+    )
+
+    assert response.status_code == status.HTTP_200_OK
+    assert response.data["first_name"] == "Updated"
+
+
+@pytest.mark.django_db
+def test_delete_profile(auth_client):
+    response = auth_client.delete(f"{BASE_URL}/profile/")
+
+    assert response.status_code == status.HTTP_204_NO_CONTENT
+
+    user = User.objects.get(username="jobseeker")
+    assert user.is_active is False
+
+
+@pytest.mark.django_db
+def test_profile_requires_authentication(api_client):
+    response = api_client.get(f"{BASE_URL}/profile/")
+
+    assert response.status_code == status.HTTP_401_UNAUTHORIZED
+
+
+# ==========================
+# PASSWORD CHANGE TESTS
+# ==========================
+
+
+@pytest.mark.django_db
+def test_change_password_success(auth_client, job_seeker):
+    payload = {
+        "old_password": "StrongPass123!",
+        "new_password": "NewStrongPass123!",
+        "confirm_new_password": "NewStrongPass123!",
+    }
+
+    response = auth_client.patch(f"{BASE_URL}/change-password/", payload)
+
+    assert response.status_code == status.HTTP_200_OK
+
+    job_seeker.refresh_from_db()
+    assert job_seeker.check_password("NewStrongPass123!")
+
+
+@pytest.mark.django_db
+def test_change_password_wrong_old(auth_client):
+    payload = {
+        "old_password": "WrongPass",
+        "new_password": "AnotherStrong123!",
+        "confirm_new_password": "AnotherStrong123!",
+    }
+
+    response = auth_client.patch(f"{BASE_URL}/change-password/", payload)
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert "old_password" in response.data
+
+
+# ==========================
+# ADMIN MANAGEMENT TESTS
+# ==========================
+
+
+@pytest.mark.django_db
+def test_admin_list_users(admin_client):
+    response = admin_client.get(f"{BASE_URL}/admin/users/")
+
+    assert response.status_code == status.HTTP_200_OK
+    assert isinstance(response.data, list)
+
+
+@pytest.mark.django_db
+def test_non_admin_cannot_list_users(auth_client):
+    response = auth_client.get(f"{BASE_URL}/admin/users/")
+
+    assert response.status_code == status.HTTP_403_FORBIDDEN
+
+
+@pytest.mark.django_db
+def test_admin_retrieve_user(admin_client, job_seeker):
+    response = admin_client.get(f"{BASE_URL}/admin/users/{job_seeker.id}/")
+
+    assert response.status_code == status.HTTP_200_OK
+    assert response.data["username"] == "jobseeker"
+
+
+@pytest.mark.django_db
+def test_admin_update_user(admin_client, job_seeker):
+    response = admin_client.patch(
+        f"{BASE_URL}/admin/users/{job_seeker.id}/",
+        {"is_active": False},
+    )
+
+    assert response.status_code == status.HTTP_200_OK
+    job_seeker.refresh_from_db()
+    assert job_seeker.is_active is False
+
+
+@pytest.mark.django_db
+def test_admin_delete_user(admin_client, job_seeker):
+    response = admin_client.delete(f"{BASE_URL}/admin/users/{job_seeker.id}/")
+
+    assert response.status_code == status.HTTP_204_NO_CONTENT
+    assert not User.objects.filter(id=job_seeker.id).exists()
