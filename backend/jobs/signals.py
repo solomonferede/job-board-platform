@@ -22,10 +22,3 @@ def job_deleted(sender, instance, **kwargs):
 @receiver(post_save, sender=Job)
 def job_status_changed(sender, instance, created, **kwargs):
     logger.info(f"Signal fired for Job {instance.id}, active={instance.is_active}")
-
-
-@receiver(post_save, sender=Job)
-def job_saved(sender, instance, created, **kwargs):
-    logger.warning(
-        f"[SIGNAL] Job {instance.id} saved | created={created} | active={instance.is_active}"
-    )
