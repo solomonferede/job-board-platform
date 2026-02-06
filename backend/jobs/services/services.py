@@ -1,6 +1,8 @@
-from .models import Job
-from django.utils import timezone
 from datetime import timedelta
+
+from django.utils import timezone
+
+from ..models import Job
 
 
 def deactivate_old_jobs(days=90):
