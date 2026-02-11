@@ -207,28 +207,9 @@ CACHES = {
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
-    "formatters": {
-        "verbose": {
-            "format": "{levelname} {asctime} {name} {message}",
-            "style": "{",
-        },
-    },
     "handlers": {
         "console": {
             "class": "logging.StreamHandler",
-            "formatter": "verbose",
-        },
-        "file": {
-            "class": "logging.FileHandler",
-            "filename": BASE_DIR / "logs/job_board.log",
-            "formatter": "verbose",
-        },
-    },
-    "loggers": {
-        "core.middleware": {
-            "handlers": ["file", "console"],
-            "level": "INFO",
-            "propagate": False,
         },
     },
     "root": {
